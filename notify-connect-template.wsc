@@ -1,0 +1,119 @@
+<?xml version="1.0"?>
+<package>
+    <?component error="false" debug="false"?>
+    <comment>
+        Implements utility that helps notify the network
+        connection state and the network interface status 
+    </comment>
+    <component>
+        <registration 
+        progid="NetAdapter.Toggler"
+        description="ToggleNetAdapterConnectionState"
+        version="1"
+        classid="___CLSID___"/>
+        <public>
+            <property name="NetStatus">
+                <get internalname="GetNetStatus"/>
+            </property>
+            <property name="NetAdapterID">
+                <put internalname="SetNetAdapterID"/>
+            </property>
+            <property name="ShortcutPath">
+                <get internalname="GetShortcutPath"/>
+                <put internalname="SetShortcutPath"/>
+            </property>
+            <property name="IconsDir">
+                <put internalname="SetIconsDir"/>
+            </property>
+            <method name="ChangeShortcutIcon"/>
+            <method name="ChangeAdapterState"/>
+        </public>
+        <script language="vbscript">
+            <![CDATA[
+            Dim NetAdapterID, ShortcutPath, NetStatus, IconsDir
+            On Error Resume Next
+            Set IconsDir = ScriptFso.GetFile(Mid(WshShell.RegRead(GetResource("ScriptletURL")), 9))._
+            ParentFolder.SubFolders.Item("ConnectionStatus")
+            Set WMIService = GetObject("winmgmts:\\.\root\cimv2")
+            On Error GoTo 0
+
+            Sub SetNetAdapterID(strNetConnectionID)
+                For Each wmiObject In WMIService.ExecQuery(_
+                    "SELECT * FROM Win32_NetworkAdapter WHERE NetConnectionID='"& strNetConnectionID &"'")
+                    NetAdapterID = wmiObject.DeviceID
+                    Exit Sub
+                Next
+            End Sub
+
+            Function GetShortcutPath : GetShortcutPath = ShortcutPath : End Function
+
+            Sub SetShortcutPath(strShortcut)
+                ShortcutPath = ScriptFso.GetFile(WshShell.ExpandEnvironmentStrings(strShortcut)).Path
+            End Sub
+
+            Sub SetIconsDir(strFolderPath)
+                With ScriptFso
+                    If .FolderExists(strFolderPath) Then Set IconsDir = .GetFolder(strFolderPath)
+                End With
+            End Sub
+
+            Function GetNetStatus
+                SetNetStatus
+                GetNetStatus = NetStatus
+            End Function
+
+            Public Sub ChangeShortcutIcon
+                With WshShell.CreateShortcut(ShortcutPath)
+                    .IconLocation = IconsDir.Files.Item(NetStatus & ".ico")
+                    .Save
+                End With
+            End Sub
+
+            Public Sub ChangeAdapterState
+                On Error Resume Next
+                Set ObjAdapter = GetAdapterObject
+                With ObjAdapter
+                    If IsDisabled(ObjAdapter) Then .Enable : Else .Disable
+                End With
+            End Sub
+
+            Private Sub SetNetStatus
+                On Error Resume Next
+                Set ObjAdapter = GetAdapterObject
+                If IsDisabled(ObjAdapter) Then
+                    NetStatus = "Disabled"
+                    Exit Sub
+                End If
+                If ObjAdapter.NetConnectionStatus = 7 Then
+                    NetStatus = "Disconnected"
+                    Exit Sub
+                End If
+                If WMIService.Get("Win32_PingStatus.Address='8.8.8.8'").StatusCode = 0 Then
+                    NetStatus = "Connected"
+                Else NetStatus = "NoInternet"
+                End If
+            End Sub
+
+            Private Function GetAdapterObject
+                On Error Resume Next
+                Set GetAdapterObject = WMIService.Get("Win32_NetworkAdapter.DeviceID='" & NetAdapterID & "'")
+            End Function
+
+            Private Function IsDisabled(ObjNetAdapter)
+                If ObjNetAdapter.NetEnabled Then
+                    IsDisabled = False
+                Else
+                    IsDisabled = WshShell.Run("Cmd /C """ &_
+                    "For /F ""Tokens=3"" %S In ('" &_
+                    "NetSh Interface show Interface Name^=Ethernet ^| " &_
+                    "Find /I ""Administrative""" &_
+                    "') Do If /I ""Disabled"" EQU ""%S"" Exit /B 1""", 0, True) = 1
+                End If
+            End Function
+            ]]>
+        </script>
+        <object id="WshShell" progid="WScript.Shell"/>
+        <object id="ScriptFso" progid="Scripting.FileSystemObject"/>
+        <resource id="ScriptletURL">HKCR\CLSID\___CLSID___\ScriptletURL\</resource>
+    </component>
+</package>
